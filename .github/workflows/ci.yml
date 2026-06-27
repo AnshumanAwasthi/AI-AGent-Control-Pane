@@ -32,4 +32,9 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: ${{ github.workspace }}
+          APP_NAME: AI Agent Control Pane API
+          APP_ENV: ci
+          DEBUG: "false"
+          API_V1_PREFIX: /v1
+          DATABASE_URL: sqlite:///./control_plane.db
         run: python -m pytest
