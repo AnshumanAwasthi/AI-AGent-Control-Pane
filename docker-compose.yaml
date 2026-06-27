@@ -1,0 +1,13 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-agent-control-pane
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./control_plane.db:/app/control_plane.db
+    restart: unless-stopped
