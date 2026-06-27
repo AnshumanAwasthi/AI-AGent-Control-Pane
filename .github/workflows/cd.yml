@@ -4,6 +4,12 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: "Force deployment even when no image components are matched"
+        required: false
+        default: "false"
+        type: boolean
 
 jobs:
   deploy:
@@ -12,6 +18,7 @@ jobs:
     env:
       IMAGE_REPOSITORY: registry.digitalocean.com/${{ vars.DO_REGISTRY_NAME }}/${{ vars.DO_IMAGE_REPOSITORY }}
       IMAGE_TAG: ${{ github.sha }}
+      FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_deploy || 'false' }}
 
     steps:
       - name: Checkout repository
@@ -46,7 +53,7 @@ jobs:
               .spec // .
             end
           ' app.json > app-spec.json
-          
+
           # Mutate the specification tags, only if fields exist
           jq --arg repo "$IMAGE_REPOSITORY" --arg tag "$IMAGE_TAG" '
             (if .services then .services |= map(if has("image") and .image.repository == $repo then .image.tag = $tag else . end) else . end) |
@@ -66,9 +73,13 @@ jobs:
           echo "Detected matched components modified: $updates_count"
 
           if [ "$updates_count" -eq 0 ]; then
-            echo "ERROR: No image components matched IMAGE_REPOSITORY=$IMAGE_REPOSITORY in App Platform spec."
-            echo "Ensure your app components use this exact repository string in DigitalOcean."
-            exit 1
+            if [ "$FORCE_DEPLOY" = "true" ]; then
+              echo "WARNING: No matching components found, but force_deploy=true so deployment will continue."
+            else
+              echo "ERROR: No image components matched IMAGE_REPOSITORY=$IMAGE_REPOSITORY in App Platform spec."
+              echo "Ensure your app components use this exact repository string in DigitalOcean or run workflow_dispatch with force_deploy=true."
+              exit 1
+            fi
           fi
 
       - name: Deploy updated App Platform spec
