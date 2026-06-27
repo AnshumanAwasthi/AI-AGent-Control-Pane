@@ -36,13 +36,21 @@ jobs:
 
       - name: Update image tag in App Platform spec
         run: |
-          jq '.[0].spec' app.json > app-spec.json
+          # Safely extract the spec regardless of array wrapping
+          if jq -e 'has("app")' app.json >/dev/null; then
+            jq '.app.spec' app.json > app-spec.json
+          else
+            jq '.[0].spec // .' app.json > app-spec.json
+          fi
+          
+          # Mutate the specification tags safely using map-values
           jq --arg repo "$IMAGE_REPOSITORY" --arg tag "$IMAGE_TAG" '
             (.services // []) |= map(if has("image") and .image.repository == $repo then .image.tag = $tag else . end) |
             (.workers // []) |= map(if has("image") and .image.repository == $repo then .image.tag = $tag else . end) |
             (.jobs // []) |= map(if has("image") and .image.repository == $repo then .image.tag = $tag else . end)
           ' app-spec.json > app-spec-updated.json
 
+          # Use line continuations to keep variable calculation in scope
           updates_count=$(jq --arg repo "$IMAGE_REPOSITORY" --arg tag "$IMAGE_TAG" '
             [
               ((.services // [])[]? | select(has("image") and .image.repository == $repo and .image.tag == $tag)),
@@ -51,9 +59,11 @@ jobs:
             ] | length
           ' app-spec-updated.json)
 
+          echo "Detected matched components modified: $updates_count"
+
           if [ "$updates_count" -eq 0 ]; then
-            echo "No image components matched IMAGE_REPOSITORY=$IMAGE_REPOSITORY in App Platform spec."
-            echo "Ensure your app components use this exact repository in DigitalOcean App Platform."
+            echo "ERROR: No image components matched IMAGE_REPOSITORY=$IMAGE_REPOSITORY in App Platform spec."
+            echo "Ensure your app components use this exact repository string in DigitalOcean."
             exit 1
           fi
 
