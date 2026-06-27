@@ -29,6 +29,7 @@ FastAPI boilerplate for building Python APIs.
 |   `-- services/
 |       `-- __init__.py
 |-- tests/
+|   |-- test_agents.py
 |   `-- test_health.py
 |-- .env.example
 |-- .gitignore
@@ -88,4 +89,10 @@ Content-Type: application/json
 
 ```powershell
 pytest
+```
+
+Run only agent tests:
+
+```powershell
+pytest tests/test_agents.py
 ```
