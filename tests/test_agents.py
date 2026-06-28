@@ -78,3 +78,38 @@ def test_list_agents_with_cursor_pagination() -> None:
 def test_list_agents_requires_bearer_token() -> None:
     response = client.get("/v1/agents/")
     assert response.status_code == 401
+
+
+def test_get_agent_by_id() -> None:
+    payload = {
+        "name": "get-by-id-agent",
+        "tenant_id": "tenant-123",
+        "runtime": "python",
+        "config": {"model": "gpt-4o-mini"},
+    }
+    headers = _auth_headers("owner-user")
+    create_response = client.post("/v1/agents/", json=payload, headers=headers)
+    assert create_response.status_code == 201
+    created = create_response.json()
+
+    get_response = client.get(f"/v1/agents/{created['id']}", headers=headers)
+    assert get_response.status_code == 200
+    fetched = get_response.json()
+    assert fetched["id"] == created["id"]
+    assert fetched["user_id"] == "owner-user"
+    assert fetched["name"] == payload["name"]
+
+
+def test_get_agent_by_id_returns_404_for_other_user() -> None:
+    payload = {
+        "name": "private-agent",
+        "tenant_id": "tenant-xyz",
+        "runtime": "python",
+        "config": {"model": "gpt-4o-mini"},
+    }
+    create_response = client.post("/v1/agents/", json=payload, headers=_auth_headers("owner-only"))
+    assert create_response.status_code == 201
+    created = create_response.json()
+
+    other_user_response = client.get(f"/v1/agents/{created['id']}", headers=_auth_headers("other-user"))
+    assert other_user_response.status_code == 404

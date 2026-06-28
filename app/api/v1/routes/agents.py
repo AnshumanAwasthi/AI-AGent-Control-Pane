@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -8,6 +8,19 @@ from app.schemas.agent import AgentCreate, AgentPage, AgentRead
 
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.get("/{agentid}", response_model=AgentRead)
+def get_agent(
+    agentid: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> Agent:
+    query = select(Agent).where(Agent.id == agentid, Agent.user_id == user_id)
+    agent = db.scalars(query).first()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    return agent
 
 
 @router.get("/", response_model=AgentPage)
