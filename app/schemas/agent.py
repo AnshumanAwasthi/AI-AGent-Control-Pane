@@ -13,6 +13,7 @@ class AgentCreate(BaseModel):
 
 class AgentRead(BaseModel):
     id: int
+    user_id: str
     name: str
     tenant_id: str
     runtime: str

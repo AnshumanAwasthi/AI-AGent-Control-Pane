@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     debug: bool
     api_v1_prefix: str
     database_url: str
+    jwt_secret_key: str
+    jwt_algorithm: str 
 
     model_config = SettingsConfigDict(
         env_file=".env",

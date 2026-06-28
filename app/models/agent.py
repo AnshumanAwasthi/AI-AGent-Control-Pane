@@ -8,6 +8,7 @@ class Agent(Base):
     __tablename__ = "agents"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     tenant_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     runtime: Mapped[str] = mapped_column(String(100), nullable=False, default="python")

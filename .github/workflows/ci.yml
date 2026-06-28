@@ -37,4 +37,6 @@ jobs:
           DEBUG: "false"
           API_V1_PREFIX: /v1
           DATABASE_URL: sqlite:///./control_plane.db
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          JWT_ALGORITHM: HS256
         run: python -m pytest
