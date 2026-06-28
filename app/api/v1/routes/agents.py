@@ -3,11 +3,37 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, get_db
+from app.core.agent_actions import ACTION_STATUS_MAP, AgentActionType
 from app.models import Agent
-from app.schemas.agent import AgentCreate, AgentPage, AgentRead
+from app.schemas.agent import AgentAction, AgentCreate, AgentPage, AgentRead
 
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.post("/{agent_id}/actions", response_model=AgentRead)
+def apply_agent_action(
+    agent_id: int,
+    payload: AgentAction,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+) -> Agent:
+    allowed_actions = [action.value for action in AgentActionType]
+    if payload.action not in allowed_actions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid action '{payload.action}'. Allowed actions: {', '.join(allowed_actions)}",
+        )
+
+    query = select(Agent).where(Agent.id == agent_id, Agent.user_id == user_id)
+    agent = db.scalars(query).first()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    agent.status = ACTION_STATUS_MAP[AgentActionType(payload.action)]
+    db.commit()
+    db.refresh(agent)
+    return agent
 
 
 @router.get("/{agentid}", response_model=AgentRead)

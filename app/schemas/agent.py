@@ -27,3 +27,7 @@ class AgentRead(BaseModel):
 class AgentPage(BaseModel):
     items: list[AgentRead]
     next_cursor: int | None = None
+
+
+class AgentAction(BaseModel):
+    action: str

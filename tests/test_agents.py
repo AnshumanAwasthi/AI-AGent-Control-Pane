@@ -113,3 +113,68 @@ def test_get_agent_by_id_returns_404_for_other_user() -> None:
 
     other_user_response = client.get(f"/v1/agents/{created['id']}", headers=_auth_headers("other-user"))
     assert other_user_response.status_code == 404
+
+
+def test_agent_actions_update_status() -> None:
+    headers = _auth_headers("action-user")
+    payload = {
+        "name": "action-agent",
+        "tenant_id": "tenant-actions",
+        "runtime": "python",
+        "config": {"model": "gpt-4o-mini"},
+    }
+    create_response = client.post("/v1/agents/", json=payload, headers=headers)
+    assert create_response.status_code == 201
+    agent_id = create_response.json()["id"]
+
+    cases = [
+        ("start", "running"),
+        ("stop", "stopped"),
+        ("pause", "paused"),
+        ("resume", "running"),
+    ]
+    for action, expected_status in cases:
+        response = client.post(f"/v1/agents/{agent_id}/actions", json={"action": action}, headers=headers)
+        assert response.status_code == 200
+        assert response.json()["status"] == expected_status
+
+
+def test_agent_actions_returns_404_for_other_user() -> None:
+    owner_headers = _auth_headers("owner-actions")
+    payload = {
+        "name": "private-action-agent",
+        "tenant_id": "tenant-actions",
+        "runtime": "python",
+        "config": {"model": "gpt-4o-mini"},
+    }
+    create_response = client.post("/v1/agents/", json=payload, headers=owner_headers)
+    assert create_response.status_code == 201
+    agent_id = create_response.json()["id"]
+
+    other_response = client.post(
+        f"/v1/agents/{agent_id}/actions",
+        json={"action": "start"},
+        headers=_auth_headers("different-user"),
+    )
+    assert other_response.status_code == 404
+
+
+def test_agent_actions_returns_400_for_invalid_action() -> None:
+    headers = _auth_headers("invalid-action-user")
+    payload = {
+        "name": "invalid-action-agent",
+        "tenant_id": "tenant-actions",
+        "runtime": "python",
+        "config": {"model": "gpt-4o-mini"},
+    }
+    create_response = client.post("/v1/agents/", json=payload, headers=headers)
+    assert create_response.status_code == 201
+    agent_id = create_response.json()["id"]
+
+    invalid_response = client.post(
+        f"/v1/agents/{agent_id}/actions",
+        json={"action": "restart"},
+        headers=headers,
+    )
+    assert invalid_response.status_code == 400
+    assert "Invalid action 'restart'" in invalid_response.json()["detail"]
