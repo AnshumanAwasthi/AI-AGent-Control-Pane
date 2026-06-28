@@ -17,6 +17,8 @@ jobs:
     environment: production
     env:
       IMAGE_REPOSITORY: registry.digitalocean.com/${{ vars.DO_REGISTRY_NAME }}/${{ vars.DO_IMAGE_REPOSITORY }}
+      IMAGE_REPOSITORY_NAME: ${{ vars.DO_IMAGE_REPOSITORY }}
+      DO_REGISTRY_NAME: ${{ vars.DO_REGISTRY_NAME }}
       IMAGE_TAG: ${{ github.sha }}
       FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_deploy || 'false' }}
 
@@ -55,18 +57,30 @@ jobs:
           ' app.json > app-spec.json
 
           # Mutate the specification tags, only if fields exist
-          jq --arg repo "$IMAGE_REPOSITORY" --arg tag "$IMAGE_TAG" '
-            (if .services then .services |= map(if has("image") and .image.repository == $repo then .image.tag = $tag else . end) else . end) |
-            (if .workers then .workers |= map(if has("image") and .image.repository == $repo then .image.tag = $tag else . end) else . end) |
-            (if .jobs then .jobs |= map(if has("image") and .image.repository == $repo then .image.tag = $tag else . end) else . end)
+          jq --arg repo_full "$IMAGE_REPOSITORY" --arg repo_name "$IMAGE_REPOSITORY_NAME" --arg registry_name "$DO_REGISTRY_NAME" --arg tag "$IMAGE_TAG" '
+            def is_target_image:
+              has("image") and (
+                (.image.repository // "") == $repo_full or
+                (.image.repository // "") == $repo_name
+              );
+
+            (if .services then .services |= map(if is_target_image then .image.tag = $tag else . end) else . end) |
+            (if .workers then .workers |= map(if is_target_image then .image.tag = $tag else . end) else . end) |
+            (if .jobs then .jobs |= map(if is_target_image then .image.tag = $tag else . end) else . end)
           ' app-spec.json > app-spec-updated.json
 
           # Count updated components
-          updates_count=$(jq --arg repo "$IMAGE_REPOSITORY" --arg tag "$IMAGE_TAG" '
+          updates_count=$(jq --arg repo_full "$IMAGE_REPOSITORY" --arg repo_name "$IMAGE_REPOSITORY_NAME" --arg tag "$IMAGE_TAG" '
+            def is_target_image:
+              has("image") and (
+                (.image.repository // "") == $repo_full or
+                (.image.repository // "") == $repo_name
+              );
+
             [
-              ((.services // [])[]? | select(has("image") and .image.repository == $repo and .image.tag == $tag)),
-              ((.workers // [])[]? | select(has("image") and .image.repository == $repo and .image.tag == $tag)),
-              ((.jobs // [])[]? | select(has("image") and .image.repository == $repo and .image.tag == $tag))
+              ((.services // [])[]? | select(is_target_image and .image.tag == $tag)),
+              ((.workers // [])[]? | select(is_target_image and .image.tag == $tag)),
+              ((.jobs // [])[]? | select(is_target_image and .image.tag == $tag))
             ] | length
           ' app-spec-updated.json)
 
@@ -77,6 +91,8 @@ jobs:
               echo "WARNING: No matching components found, but force_deploy=true so deployment will continue."
             else
               echo "ERROR: No image components matched IMAGE_REPOSITORY=$IMAGE_REPOSITORY in App Platform spec."
+              echo "DEBUG: discovered image repositories in current spec:"
+              jq -r '.. | objects | select(has("image")) | .image.repository // empty' app-spec.json | sort -u
               echo "Ensure your app components use this exact repository string in DigitalOcean or run workflow_dispatch with force_deploy=true."
               exit 1
             fi
