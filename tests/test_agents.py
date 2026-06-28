@@ -80,6 +80,12 @@ def test_list_agents_requires_bearer_token() -> None:
     assert response.status_code == 401
 
 
+def test_list_agents_without_trailing_slash_works() -> None:
+    headers = _auth_headers("slashless-user")
+    response = client.get("/v1/agents", headers=headers, follow_redirects=False)
+    assert response.status_code == 200
+
+
 def test_get_agent_by_id() -> None:
     payload = {
         "name": "get-by-id-agent",
@@ -129,9 +135,9 @@ def test_agent_actions_update_status() -> None:
 
     cases = [
         ("start", "running"),
-        ("stop", "stopped"),
         ("pause", "paused"),
         ("resume", "running"),
+        ("stop", "stopped"),
     ]
     for action, expected_status in cases:
         response = client.post(f"/v1/agents/{agent_id}/actions", json={"action": action}, headers=headers)
@@ -178,3 +184,39 @@ def test_agent_actions_returns_400_for_invalid_action() -> None:
     )
     assert invalid_response.status_code == 400
     assert "Invalid action 'restart'" in invalid_response.json()["detail"]
+
+
+def test_agent_actions_reject_invalid_transition() -> None:
+    headers = _auth_headers("transition-user")
+    payload = {
+        "name": "transition-agent",
+        "tenant_id": "tenant-actions",
+        "runtime": "python",
+        "config": {"model": "gpt-4o-mini"},
+    }
+    create_response = client.post("/v1/agents/", json=payload, headers=headers)
+    assert create_response.status_code == 201
+    agent_id = create_response.json()["id"]
+
+    first_response = client.post(
+        f"/v1/agents/{agent_id}/actions",
+        json={"action": "start"},
+        headers=headers,
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        f"/v1/agents/{agent_id}/actions",
+        json={"action": "stop"},
+        headers=headers,
+    )
+    assert second_response.status_code == 200
+
+    invalid_transition_response = client.post(
+        f"/v1/agents/{agent_id}/actions",
+        json={"action": "pause"},
+        headers=headers,
+    )
+    assert invalid_transition_response.status_code == 409
+    assert "is not allowed when agent status is 'stopped'" in invalid_transition_response.json()["detail"]
+    assert "transition to 'paused'" in invalid_transition_response.json()["detail"]

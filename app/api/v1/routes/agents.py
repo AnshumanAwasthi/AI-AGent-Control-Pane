@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, get_db
-from app.core.agent_actions import ACTION_STATUS_MAP, AgentActionType
+from app.core.agent_actions import ACTION_STATUS_MAP, AgentActionType, VALID_STATUS_TRANSITIONS
 from app.models import Agent
 from app.schemas.agent import AgentAction, AgentCreate, AgentPage, AgentRead
 
@@ -30,7 +30,27 @@ def apply_agent_action(
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
-    agent.status = ACTION_STATUS_MAP[AgentActionType(payload.action)]
+    action = AgentActionType(payload.action)
+    target_status = ACTION_STATUS_MAP[action]
+    
+    if target_status == agent.status:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Agent is already in '{agent.status}' state.",
+        )
+    
+    allowed_target_statuses = VALID_STATUS_TRANSITIONS.get(agent.status, set())
+    if target_status not in allowed_target_statuses:
+        allowed_statuses = ", ".join(sorted(allowed_target_statuses)) or "none"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Action '{payload.action}' is not allowed when agent status is '{agent.status}' because it would transition to '{target_status}'. "
+                f"Allowed next statuses: {allowed_statuses}"
+            ),
+        )
+
+    agent.status = target_status
     db.commit()
     db.refresh(agent)
     return agent
@@ -49,6 +69,7 @@ def get_agent(
     return agent
 
 
+@router.get("", response_model=AgentPage, include_in_schema=False)
 @router.get("/", response_model=AgentPage)
 def list_agents(
     cursor: int | None = Query(default=None, ge=1),
@@ -70,6 +91,7 @@ def list_agents(
     return AgentPage(items=items, next_cursor=next_cursor)
 
 
+@router.post("", response_model=AgentRead, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 @router.post("/", response_model=AgentRead, status_code=status.HTTP_201_CREATED)
 def create_agent(
     payload: AgentCreate,
