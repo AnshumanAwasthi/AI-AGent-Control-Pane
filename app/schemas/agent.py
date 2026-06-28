@@ -22,3 +22,8 @@ class AgentRead(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AgentPage(BaseModel):
+    items: list[AgentRead]
+    next_cursor: int | None = None
