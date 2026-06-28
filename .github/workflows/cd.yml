@@ -4,23 +4,11 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
-    inputs:
-      force_deploy:
-        description: "Force deployment even when no image components are matched"
-        required: false
-        default: "false"
-        type: boolean
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
-    env:
-      IMAGE_REPOSITORY: registry.digitalocean.com/${{ vars.DO_REGISTRY_NAME }}/${{ vars.DO_IMAGE_REPOSITORY }}
-      IMAGE_REPOSITORY_NAME: ${{ vars.DO_IMAGE_REPOSITORY }}
-      DO_REGISTRY_NAME: ${{ vars.DO_REGISTRY_NAME }}
-      IMAGE_TAG: ${{ github.sha }}
-      FORCE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_deploy || 'false' }}
 
     steps:
       - name: Checkout repository
@@ -31,72 +19,5 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Log in to DigitalOcean Container Registry
-        run: doctl registry login --expiry-seconds 1200
-
-      - name: Build and push Docker image
-        run: |
-          docker build -t "$IMAGE_REPOSITORY:$IMAGE_TAG" -t "$IMAGE_REPOSITORY:latest" .
-          docker push "$IMAGE_REPOSITORY:$IMAGE_TAG"
-          docker push "$IMAGE_REPOSITORY:latest"
-
-      - name: Fetch current App Platform spec
-        run: doctl apps get "${{ secrets.DO_APP_ID }}" --output json > app.json
-
-      - name: Update image tag in App Platform spec
-        run: |
-          # Safely extract the spec from various possible structures
-          jq '
-            if type == "array" then
-              .[0] | (.app.spec // .spec // .)
-            elif has("app") then
-              .app.spec
-            else
-              .spec // .
-            end
-          ' app.json > app-spec.json
-
-          # Mutate the specification tags, only if fields exist
-          jq --arg repo_full "$IMAGE_REPOSITORY" --arg repo_name "$IMAGE_REPOSITORY_NAME" --arg registry_name "$DO_REGISTRY_NAME" --arg tag "$IMAGE_TAG" '
-            def is_target_image:
-              has("image") and (
-                (.image.repository // "") == $repo_full or
-                (.image.repository // "") == $repo_name
-              );
-
-            (if .services then .services |= map(if is_target_image then .image.tag = $tag else . end) else . end) |
-            (if .workers then .workers |= map(if is_target_image then .image.tag = $tag else . end) else . end) |
-            (if .jobs then .jobs |= map(if is_target_image then .image.tag = $tag else . end) else . end)
-          ' app-spec.json > app-spec-updated.json
-
-          # Count updated components
-          updates_count=$(jq --arg repo_full "$IMAGE_REPOSITORY" --arg repo_name "$IMAGE_REPOSITORY_NAME" --arg tag "$IMAGE_TAG" '
-            def is_target_image:
-              has("image") and (
-                (.image.repository // "") == $repo_full or
-                (.image.repository // "") == $repo_name
-              );
-
-            [
-              ((.services // [])[]? | select(is_target_image and .image.tag == $tag)),
-              ((.workers // [])[]? | select(is_target_image and .image.tag == $tag)),
-              ((.jobs // [])[]? | select(is_target_image and .image.tag == $tag))
-            ] | length
-          ' app-spec-updated.json)
-
-          echo "Detected matched components modified: $updates_count"
-
-          if [ "$updates_count" -eq 0 ]; then
-            if [ "$FORCE_DEPLOY" = "true" ]; then
-              echo "WARNING: No matching components found, but force_deploy=true so deployment will continue."
-            else
-              echo "ERROR: No image components matched IMAGE_REPOSITORY=$IMAGE_REPOSITORY in App Platform spec."
-              echo "DEBUG: discovered image repositories in current spec:"
-              jq -r '.. | objects | select(has("image")) | .image.repository // empty' app-spec.json | sort -u
-              echo "Ensure your app components use this exact repository string in DigitalOcean or run workflow_dispatch with force_deploy=true."
-              exit 1
-            fi
-          fi
-
-      - name: Deploy updated App Platform spec
-        run: doctl apps update "${{ secrets.DO_APP_ID }}" --spec app-spec-updated.json --wait
+      - name: Deploy to App Platform
+        run: doctl apps create-deployment "${{ secrets.DO_APP_ID }}" --update-sources --wait
