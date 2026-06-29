@@ -9,8 +9,12 @@ class Base(DeclarativeBase):
 
 
 is_sqlite = settings.database_url.startswith("sqlite")
+is_postgres = settings.database_url.startswith(("postgresql://", "postgres://", "postgresql+psycopg://"))
+connect_args = {"check_same_thread": False} if is_sqlite else ({"sslmode": "require"} if is_postgres else {})
+
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False} if is_sqlite else {},
+    connect_args=connect_args,
+    pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

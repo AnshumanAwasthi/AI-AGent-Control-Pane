@@ -56,6 +56,15 @@ pip install -r requirements-dev.txt
 
 Copy `.env.example` to `.env` and update values as needed.
 
+This project now uses PostgreSQL. For a DigitalOcean Managed Database, set `DATABASE_URL` in `.env` using the connection string format below:
+
+```env
+DATABASE_URL=postgresql+psycopg://doadmin:<password>@<host>:25060/defaultdb?sslmode=require
+AGENTS_TABLE_NAME=agents
+```
+
+Use the host, password, and database name from your DigitalOcean database connection details.
+
 ## 4) Run the API
 
 ```powershell

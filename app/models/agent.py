@@ -1,11 +1,12 @@
 from sqlalchemy import DateTime, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.config import settings
 from app.db import Base
 
 
 class Agent(Base):
-    __tablename__ = "agents"
+    __tablename__ = settings.agents_table_name
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)

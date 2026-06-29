@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     debug: bool
     api_v1_prefix: str
     database_url: str
+    agents_table_name: str = "agents"
     jwt_secret_key: str
     jwt_algorithm: str 
 

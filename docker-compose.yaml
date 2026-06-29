@@ -8,6 +8,4 @@ services:
       - .env
     ports:
       - "8000:8000"
-    volumes:
-      - ./control_plane.db:/app/control_plane.db
     restart: unless-stopped
