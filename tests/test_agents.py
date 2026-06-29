@@ -1,17 +1,34 @@
 import jwt
 from uuid import uuid4
 from fastapi.testclient import TestClient
+from sqlalchemy import delete
 
-from app.core.config import settings
+from app.db import SessionLocal
 from app.main import app
+from app.models import Tenant
 
 
 client = TestClient(app)
 
 
 def _auth_headers(user_id: str = "user-123") -> dict[str, str]:
+    from app.core.config import settings
+
     token = jwt.encode({"user_id": user_id}, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     return {"Authorization": f"Bearer {token}"}
+
+
+def _set_tenant_limits(tenant_id: str, max_agents: int, max_running_agents: int) -> None:
+    with SessionLocal() as db:
+        db.execute(delete(Tenant).where(Tenant.tenant_id == tenant_id))
+        db.add(Tenant(tenant_id=tenant_id, max_agents=max_agents, max_running_agents=max_running_agents))
+        db.commit()
+
+
+def _delete_tenant_limits(tenant_id: str) -> None:
+    with SessionLocal() as db:
+        db.execute(delete(Tenant).where(Tenant.tenant_id == tenant_id))
+        db.commit()
 
 
 def test_create_agent() -> None:
@@ -51,29 +68,33 @@ def test_create_agent_requires_bearer_token() -> None:
 def test_list_agents_with_cursor_pagination() -> None:
     user_id = "paging-user"
     headers = _auth_headers(user_id)
+    tenant_id = f"tenant-pagination-{uuid4()}"
+    _set_tenant_limits(tenant_id, max_agents=3, max_running_agents=3)
+    try:
+        for idx in range(3):
+            payload = {
+                "name": f"agent-{idx}",
+                "tenant_id": tenant_id,
+                "runtime": "python",
+                "config": {"model": "gpt-4o-mini", "idx": idx},
+            }
+            create_response = client.post("/v1/agents/", json=payload, headers=headers)
+            assert create_response.status_code == 201
 
-    for idx in range(3):
-        payload = {
-            "name": f"agent-{idx}",
-            "tenant_id": "tenant-pagination",
-            "runtime": "python",
-            "config": {"model": "gpt-4o-mini", "idx": idx},
-        }
-        create_response = client.post("/v1/agents/", json=payload, headers=headers)
-        assert create_response.status_code == 201
+        first_page = client.get("/v1/agents/?limit=2", headers=headers)
+        assert first_page.status_code == 200
+        first_body = first_page.json()
+        assert len(first_body["items"]) == 2
+        assert first_body["next_cursor"] is not None
+        assert all(item["user_id"] == user_id for item in first_body["items"])
 
-    first_page = client.get("/v1/agents/?limit=2", headers=headers)
-    assert first_page.status_code == 200
-    first_body = first_page.json()
-    assert len(first_body["items"]) == 2
-    assert first_body["next_cursor"] is not None
-    assert all(item["user_id"] == user_id for item in first_body["items"])
-
-    second_page = client.get(f"/v1/agents/?limit=2&cursor={first_body['next_cursor']}", headers=headers)
-    assert second_page.status_code == 200
-    second_body = second_page.json()
-    assert len(second_body["items"]) >= 1
-    assert all(item["user_id"] == user_id for item in second_body["items"])
+        second_page = client.get(f"/v1/agents/?limit=2&cursor={first_body['next_cursor']}", headers=headers)
+        assert second_page.status_code == 200
+        second_body = second_page.json()
+        assert len(second_body["items"]) >= 1
+        assert all(item["user_id"] == user_id for item in second_body["items"])
+    finally:
+        _delete_tenant_limits(tenant_id)
 
 
 def test_list_agents_requires_bearer_token() -> None:
@@ -168,9 +189,10 @@ def test_agent_actions_returns_404_for_other_user() -> None:
 
 def test_agent_actions_returns_400_for_invalid_action() -> None:
     headers = _auth_headers("invalid-action-user")
+    tenant_id = f"tenant-actions-{uuid4()}"
     payload = {
         "name": "invalid-action-agent",
-        "tenant_id": "tenant-actions",
+        "tenant_id": tenant_id,
         "runtime": "python",
         "config": {"model": "gpt-4o-mini"},
     }
@@ -189,9 +211,10 @@ def test_agent_actions_returns_400_for_invalid_action() -> None:
 
 def test_agent_actions_reject_invalid_transition() -> None:
     headers = _auth_headers("transition-user")
+    tenant_id = f"tenant-actions-{uuid4()}"
     payload = {
         "name": "transition-agent",
-        "tenant_id": "tenant-actions",
+        "tenant_id": tenant_id,
         "runtime": "python",
         "config": {"model": "gpt-4o-mini"},
     }
@@ -224,11 +247,9 @@ def test_agent_actions_reject_invalid_transition() -> None:
 
 
 def test_create_agent_enforces_tenant_quota() -> None:
-    original_quota = settings.tenant_max_agents
-    settings.tenant_max_agents = 1
+    tenant_id = f"tenant-quota-test-{uuid4()}"
+    _set_tenant_limits(tenant_id, max_agents=1, max_running_agents=1)
     try:
-        tenant_id = f"tenant-quota-test-{uuid4()}"
-
         first_payload = {
             "name": "quota-agent-1",
             "tenant_id": tenant_id,
@@ -249,17 +270,13 @@ def test_create_agent_enforces_tenant_quota() -> None:
         assert second_response.status_code == 403
         assert "reached the agent quota" in second_response.json()["detail"]
     finally:
-        settings.tenant_max_agents = original_quota
+        _delete_tenant_limits(tenant_id)
 
 
 def test_agent_actions_enforce_tenant_running_quota() -> None:
-    original_total_quota = settings.tenant_max_agents
-    original_running_quota = settings.tenant_max_running_agents
-    settings.tenant_max_agents = 2
-    settings.tenant_max_running_agents = 1
+    tenant_id = f"tenant-running-quota-{uuid4()}"
+    _set_tenant_limits(tenant_id, max_agents=2, max_running_agents=1)
     try:
-        tenant_id = f"tenant-running-quota-{uuid4()}"
-
         first_create = client.post(
             "/v1/agents/",
             json={
@@ -302,5 +319,84 @@ def test_agent_actions_enforce_tenant_running_quota() -> None:
         assert second_start.status_code == 403
         assert "reached the running agent quota" in second_start.json()["detail"]
     finally:
-        settings.tenant_max_agents = original_total_quota
-        settings.tenant_max_running_agents = original_running_quota
+        _delete_tenant_limits(tenant_id)
+
+
+def test_create_agent_enforces_tenant_specific_quota_override() -> None:
+    tenant_id = "tenant-special"
+    _set_tenant_limits(tenant_id, max_agents=1, max_running_agents=10)
+    try:
+        first_response = client.post(
+            "/v1/agents/",
+            json={
+                "name": "tenant-special-agent-1",
+                "tenant_id": tenant_id,
+                "runtime": "python",
+                "config": {"model": "gpt-4o-mini"},
+            },
+            headers=_auth_headers("tenant-special-user-1"),
+        )
+        assert first_response.status_code == 201
+
+        second_response = client.post(
+            "/v1/agents/",
+            json={
+                "name": "tenant-special-agent-2",
+                "tenant_id": tenant_id,
+                "runtime": "python",
+                "config": {"model": "gpt-4o-mini"},
+            },
+            headers=_auth_headers("tenant-special-user-2"),
+        )
+        assert second_response.status_code == 403
+        assert "reached the agent quota of 1" in second_response.json()["detail"]
+    finally:
+        _delete_tenant_limits(tenant_id)
+
+
+def test_agent_actions_enforce_tenant_specific_running_quota_override() -> None:
+    tenant_id = "tenant-special-run"
+    _set_tenant_limits(tenant_id, max_agents=10, max_running_agents=1)
+    try:
+        first_create = client.post(
+            "/v1/agents/",
+            json={
+                "name": "tenant-special-run-agent-1",
+                "tenant_id": tenant_id,
+                "runtime": "python",
+                "config": {"model": "gpt-4o-mini"},
+            },
+            headers=_auth_headers("tenant-special-run-user-1"),
+        )
+        assert first_create.status_code == 201
+        first_id = first_create.json()["id"]
+
+        second_create = client.post(
+            "/v1/agents/",
+            json={
+                "name": "tenant-special-run-agent-2",
+                "tenant_id": tenant_id,
+                "runtime": "python",
+                "config": {"model": "gpt-4o-mini"},
+            },
+            headers=_auth_headers("tenant-special-run-user-2"),
+        )
+        assert second_create.status_code == 201
+        second_id = second_create.json()["id"]
+
+        first_start = client.post(
+            f"/v1/agents/{first_id}/actions",
+            json={"action": "start"},
+            headers=_auth_headers("tenant-special-run-user-1"),
+        )
+        assert first_start.status_code == 200
+
+        second_start = client.post(
+            f"/v1/agents/{second_id}/actions",
+            json={"action": "start"},
+            headers=_auth_headers("tenant-special-run-user-2"),
+        )
+        assert second_start.status_code == 403
+        assert "reached the running agent quota of 1" in second_start.json()["detail"]
+    finally:
+        _delete_tenant_limits(tenant_id)

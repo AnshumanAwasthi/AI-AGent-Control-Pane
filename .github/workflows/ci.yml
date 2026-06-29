@@ -53,8 +53,9 @@ jobs:
           DATABASE_URL: postgresql+psycopg://ci_user:ci_password@localhost:5432/ci_db
           DB_CONNECT_TIMEOUT_SECONDS: 10
           AGENTS_TABLE_NAME: agents
+          TENANT_TABLE_NAME: tenants
           TENANT_MAX_AGENTS: 100
-          TENANT_MAX_RUNNING_AGENTS: 100
+          TENANT_MAX_RUNNING_AGENTS: 20
           JWT_SECRET_KEY: ci_jwt_secret_key
           JWT_ALGORITHM: HS256
         run: python -m pytest

@@ -9,8 +9,9 @@ class Settings(BaseSettings):
     database_url: str
     db_connect_timeout_seconds: int
     agents_table_name: str
-    tenant_max_agents: int
-    tenant_max_running_agents: int
+    tenant_table_name: str
+    tenant_max_agents: int 
+    tenant_max_running_agents: int 
     jwt_secret_key: str
     jwt_algorithm: str 
 

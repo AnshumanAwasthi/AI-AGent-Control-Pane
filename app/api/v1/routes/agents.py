@@ -6,11 +6,25 @@ from app.api.deps import get_current_user_id, get_db
 from app.core.agent_actions import ACTION_STATUS_MAP, AgentActionType, VALID_STATUS_TRANSITIONS
 from app.core.config import settings
 from app.core.agent_status import AgentStatusType
-from app.models import Agent
+from app.models import Agent, Tenant
 from app.schemas.agent import AgentAction, AgentCreate, AgentPage, AgentRead
 
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+def get_tenant_limits(db: Session, tenant_id: str) -> dict[str, int]:
+    tenant = db.scalars(select(Tenant).where(Tenant.tenant_id == tenant_id)).first()
+    if tenant is None:
+        return {
+            "max_agents": settings.tenant_max_agents,
+            "max_running_agents": settings.tenant_max_running_agents,
+        }
+
+    return {
+        "max_agents": tenant.max_agents,
+        "max_running_agents": tenant.max_running_agents,
+    }
 
 
 @router.post("/{agent_id}/actions", response_model=AgentRead)
@@ -34,6 +48,8 @@ def apply_agent_action(
 
     action = AgentActionType(payload.action)
     target_status = ACTION_STATUS_MAP[action]
+    tenant_limits = get_tenant_limits(db, agent.tenant_id)
+    tenant_max_running_agents = tenant_limits["max_running_agents"]
     
     if target_status == agent.status:
         raise HTTPException(
@@ -52,7 +68,7 @@ def apply_agent_action(
             ),
         )
 
-    if target_status == AgentStatusType.RUNNING.value and settings.tenant_max_running_agents > 0:
+    if target_status == AgentStatusType.RUNNING.value and tenant_max_running_agents > 0:
         running_agent_count_query = (
             select(func.count())
             .select_from(Agent)
@@ -62,12 +78,12 @@ def apply_agent_action(
             )
         )
         running_agent_count = db.scalar(running_agent_count_query) or 0
-        if running_agent_count >= settings.tenant_max_running_agents:
+        if running_agent_count >= tenant_max_running_agents:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
-                    f"Tenant '{agent.tenant_id}' reached the running agent quota of {settings.tenant_max_running_agents}. "
-                    "Stop or pause running agents, or increase TENANT_MAX_RUNNING_AGENTS."
+                    f"Tenant '{agent.tenant_id}' reached the running agent quota of {tenant_max_running_agents}. "
+                    "Stop or pause running agents, or update tenant limits."
                 ),
             )
 
@@ -119,15 +135,18 @@ def create_agent(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> Agent:
-    if settings.tenant_max_agents > 0:
+    tenant_limits = get_tenant_limits(db, payload.tenant_id)
+    tenant_max_agents = tenant_limits["max_agents"]
+
+    if tenant_max_agents > 0:
         tenant_agent_count_query = select(func.count()).select_from(Agent).where(Agent.tenant_id == payload.tenant_id)
         tenant_agent_count = db.scalar(tenant_agent_count_query) or 0
-        if tenant_agent_count >= settings.tenant_max_agents:
+        if tenant_agent_count >= tenant_max_agents:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
-                    f"Tenant '{payload.tenant_id}' reached the agent quota of {settings.tenant_max_agents}. "
-                    "Delete existing agents or increase TENANT_MAX_AGENTS."
+                    f"Tenant '{payload.tenant_id}' reached the agent quota of {tenant_max_agents}. "
+                    "Delete existing agents or update tenant limits."
                 ),
             )
 
