@@ -9,6 +9,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: ci_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci_user -d ci_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     strategy:
       fail-fast: false
@@ -36,7 +50,7 @@ jobs:
           APP_ENV: ci
           DEBUG: "false"
           API_V1_PREFIX: /v1
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          DATABASE_URL: postgresql+psycopg://ci_user:ci_password@localhost:5432/ci_db
+          JWT_SECRET_KEY: ci_jwt_secret_key
           JWT_ALGORITHM: HS256
         run: python -m pytest

@@ -15,8 +15,7 @@ elif database_url.startswith("postgresql://"):
     database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
 is_sqlite = database_url.startswith("sqlite")
-is_postgres = database_url.startswith("postgresql+psycopg://")
-connect_args = {"check_same_thread": False} if is_sqlite else ({"sslmode": "require"} if is_postgres else {})
+connect_args = {"check_same_thread": False} if is_sqlite else {}
 
 engine = create_engine(
     database_url,
