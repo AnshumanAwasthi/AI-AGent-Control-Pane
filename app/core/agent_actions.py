@@ -1,5 +1,7 @@
 from enum import Enum
 
+from app.core.agent_status import AgentStatusType
+
 
 class AgentActionType(str, Enum):
     START = "start"
@@ -9,16 +11,16 @@ class AgentActionType(str, Enum):
 
 
 ACTION_STATUS_MAP: dict[AgentActionType, str] = {
-    AgentActionType.START: "running",
-    AgentActionType.STOP: "stopped",
-    AgentActionType.PAUSE: "paused",
-    AgentActionType.RESUME: "running",
+    AgentActionType.START: AgentStatusType.RUNNING.value,
+    AgentActionType.STOP: AgentStatusType.STOPPED.value,
+    AgentActionType.PAUSE: AgentStatusType.PAUSED.value,
+    AgentActionType.RESUME: AgentStatusType.RUNNING.value,
 }
 
 
 VALID_STATUS_TRANSITIONS: dict[str, set[str]] = {
-    "created": {ACTION_STATUS_MAP[AgentActionType.START]},
-    "running": {ACTION_STATUS_MAP[AgentActionType.PAUSE], ACTION_STATUS_MAP[AgentActionType.STOP]},
-    "paused": {ACTION_STATUS_MAP[AgentActionType.RESUME], ACTION_STATUS_MAP[AgentActionType.STOP]},
-    "stopped": {ACTION_STATUS_MAP[AgentActionType.START]},
+    AgentStatusType.CREATED.value: {ACTION_STATUS_MAP[AgentActionType.START]},
+    AgentStatusType.RUNNING.value: {ACTION_STATUS_MAP[AgentActionType.PAUSE], ACTION_STATUS_MAP[AgentActionType.STOP]},
+    AgentStatusType.PAUSED.value: {ACTION_STATUS_MAP[AgentActionType.RESUME], ACTION_STATUS_MAP[AgentActionType.STOP]},
+    AgentStatusType.STOPPED.value: {ACTION_STATUS_MAP[AgentActionType.START]},
 }

@@ -51,6 +51,8 @@ jobs:
           DEBUG: "false"
           API_V1_PREFIX: /v1
           DATABASE_URL: postgresql+psycopg://ci_user:ci_password@localhost:5432/ci_db
+          AGENTS_TABLE_NAME: agents
+          TENANT_MAX_AGENTS: 100
           JWT_SECRET_KEY: ci_jwt_secret_key
           JWT_ALGORITHM: HS256
         run: python -m pytest

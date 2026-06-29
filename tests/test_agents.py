@@ -1,4 +1,5 @@
 import jwt
+from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
@@ -220,3 +221,32 @@ def test_agent_actions_reject_invalid_transition() -> None:
     assert invalid_transition_response.status_code == 409
     assert "is not allowed when agent status is 'stopped'" in invalid_transition_response.json()["detail"]
     assert "transition to 'paused'" in invalid_transition_response.json()["detail"]
+
+
+def test_create_agent_enforces_tenant_quota() -> None:
+    original_quota = settings.tenant_max_agents
+    settings.tenant_max_agents = 1
+    try:
+        tenant_id = f"tenant-quota-test-{uuid4()}"
+
+        first_payload = {
+            "name": "quota-agent-1",
+            "tenant_id": tenant_id,
+            "runtime": "python",
+            "config": {"model": "gpt-4o-mini"},
+        }
+        first_response = client.post("/v1/agents/", json=first_payload, headers=_auth_headers("quota-user-1"))
+        assert first_response.status_code == 201
+
+        second_payload = {
+            "name": "quota-agent-2",
+            "tenant_id": tenant_id,
+            "runtime": "python",
+            "config": {"model": "gpt-4o-mini"},
+        }
+        second_response = client.post("/v1/agents/", json=second_payload, headers=_auth_headers("quota-user-2"))
+
+        assert second_response.status_code == 403
+        assert "reached the agent quota" in second_response.json()["detail"]
+    finally:
+        settings.tenant_max_agents = original_quota

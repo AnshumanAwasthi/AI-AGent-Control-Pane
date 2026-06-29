@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_id, get_db
 from app.core.agent_actions import ACTION_STATUS_MAP, AgentActionType, VALID_STATUS_TRANSITIONS
+from app.core.config import settings
+from app.core.agent_status import AgentStatusType
 from app.models import Agent
 from app.schemas.agent import AgentAction, AgentCreate, AgentPage, AgentRead
 
@@ -98,12 +100,24 @@ def create_agent(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> Agent:
+    if settings.tenant_max_agents > 0:
+        tenant_agent_count_query = select(func.count()).select_from(Agent).where(Agent.tenant_id == payload.tenant_id)
+        tenant_agent_count = db.scalar(tenant_agent_count_query) or 0
+        if tenant_agent_count >= settings.tenant_max_agents:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Tenant '{payload.tenant_id}' reached the agent quota of {settings.tenant_max_agents}. "
+                    "Delete existing agents or increase TENANT_MAX_AGENTS."
+                ),
+            )
+
     agent = Agent(
         user_id=user_id,
         name=payload.name,
         tenant_id=payload.tenant_id,
         runtime=payload.runtime,
-        status="created",
+        status=AgentStatusType.CREATED.value,
         config=payload.config,
     )
     db.add(agent)
