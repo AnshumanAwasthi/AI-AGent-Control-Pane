@@ -8,12 +8,18 @@ class Base(DeclarativeBase):
     pass
 
 
-is_sqlite = settings.database_url.startswith("sqlite")
-is_postgres = settings.database_url.startswith(("postgresql://", "postgres://", "postgresql+psycopg://"))
+database_url = settings.database_url
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
+elif database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+is_sqlite = database_url.startswith("sqlite")
+is_postgres = database_url.startswith("postgresql+psycopg://")
 connect_args = {"check_same_thread": False} if is_sqlite else ({"sslmode": "require"} if is_postgres else {})
 
 engine = create_engine(
-    settings.database_url,
+    database_url,
     connect_args=connect_args,
     pool_pre_ping=True,
 )
