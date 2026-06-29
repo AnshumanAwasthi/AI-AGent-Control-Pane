@@ -250,3 +250,57 @@ def test_create_agent_enforces_tenant_quota() -> None:
         assert "reached the agent quota" in second_response.json()["detail"]
     finally:
         settings.tenant_max_agents = original_quota
+
+
+def test_agent_actions_enforce_tenant_running_quota() -> None:
+    original_total_quota = settings.tenant_max_agents
+    original_running_quota = settings.tenant_max_running_agents
+    settings.tenant_max_agents = 2
+    settings.tenant_max_running_agents = 1
+    try:
+        tenant_id = f"tenant-running-quota-{uuid4()}"
+
+        first_create = client.post(
+            "/v1/agents/",
+            json={
+                "name": "running-quota-agent-1",
+                "tenant_id": tenant_id,
+                "runtime": "python",
+                "config": {"model": "gpt-4o-mini"},
+            },
+            headers=_auth_headers("running-quota-user-1"),
+        )
+        assert first_create.status_code == 201
+        first_id = first_create.json()["id"]
+
+        second_create = client.post(
+            "/v1/agents/",
+            json={
+                "name": "running-quota-agent-2",
+                "tenant_id": tenant_id,
+                "runtime": "python",
+                "config": {"model": "gpt-4o-mini"},
+            },
+            headers=_auth_headers("running-quota-user-2"),
+        )
+        assert second_create.status_code == 201
+        second_id = second_create.json()["id"]
+
+        first_start = client.post(
+            f"/v1/agents/{first_id}/actions",
+            json={"action": "start"},
+            headers=_auth_headers("running-quota-user-1"),
+        )
+        assert first_start.status_code == 200
+        assert first_start.json()["status"] == "running"
+
+        second_start = client.post(
+            f"/v1/agents/{second_id}/actions",
+            json={"action": "start"},
+            headers=_auth_headers("running-quota-user-2"),
+        )
+        assert second_start.status_code == 403
+        assert "reached the running agent quota" in second_start.json()["detail"]
+    finally:
+        settings.tenant_max_agents = original_total_quota
+        settings.tenant_max_running_agents = original_running_quota

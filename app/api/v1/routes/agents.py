@@ -52,6 +52,25 @@ def apply_agent_action(
             ),
         )
 
+    if target_status == AgentStatusType.RUNNING.value and settings.tenant_max_running_agents > 0:
+        running_agent_count_query = (
+            select(func.count())
+            .select_from(Agent)
+            .where(
+                Agent.tenant_id == agent.tenant_id,
+                Agent.status == AgentStatusType.RUNNING.value,
+            )
+        )
+        running_agent_count = db.scalar(running_agent_count_query) or 0
+        if running_agent_count >= settings.tenant_max_running_agents:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Tenant '{agent.tenant_id}' reached the running agent quota of {settings.tenant_max_running_agents}. "
+                    "Stop or pause running agents, or increase TENANT_MAX_RUNNING_AGENTS."
+                ),
+            )
+
     agent.status = target_status
     db.commit()
     db.refresh(agent)
